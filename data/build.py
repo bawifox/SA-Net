@@ -1,0 +1,219 @@
+# --------------------------------------------------------
+# Swin Transformer
+# Copyright (c) 2021 Microsoft
+# Licensed under The MIT License [see LICENSE for details]
+# Written by Ze Liu
+# --------------------------------------------------------
+# Adapted for AutoFocusFormer by Ziwen 2023
+
+import os
+import torch
+import numpy as np
+import utils
+import torch.distributed as dist
+from torchvision import datasets, transforms
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+from timm.data import Mixup
+from timm.data import create_transform
+from timm.data.transforms import _str_to_pil_interpolation
+
+from .samplers import SubsetRandomSampler
+from .cityscapes import CityscapesSegDataset, CityscapesOODDataset
+from .sos import SOSSegDataset
+from .synthetic_anomaly import SyntheticAnomalyDataset
+
+
+def build_loader(config):
+    config.defrost()
+    dataset_train, config.MODEL.NUM_CLASSES = build_dataset(is_train=True, config=config)
+    config.freeze()
+    print(f"local rank {config.LOCAL_RANK} / global rank {utils.get_rank()} successfully build train dataset")
+    dataset_val, _ = build_dataset(is_train=False, config=config)
+    print(f"local rank {config.LOCAL_RANK} / global rank {utils.get_rank()} successfully build val dataset")
+
+    if dist.is_available() and dist.is_initialized():
+        num_tasks = dist.get_world_size()
+        global_rank = utils.get_rank()
+        sampler_train = torch.utils.data.DistributedSampler(
+            dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+        )
+        indices = np.arange(global_rank, len(dataset_val), num_tasks)
+        sampler_val = SubsetRandomSampler(indices)
+    else:
+        sampler_train = torch.utils.data.RandomSampler(dataset_train)
+        sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+
+    data_loader_train = torch.utils.data.DataLoader(
+        dataset_train, sampler=sampler_train,
+        batch_size=config.DATA.BATCH_SIZE,
+        num_workers=config.DATA.NUM_WORKERS,
+        pin_memory=config.DATA.PIN_MEMORY,
+        drop_last=True,
+    )
+
+    data_loader_val = torch.utils.data.DataLoader(
+        dataset_val, sampler=sampler_val,
+        batch_size=config.DATA.BATCH_SIZE,
+        shuffle=False,
+        num_workers=config.DATA.NUM_WORKERS,
+        pin_memory=config.DATA.PIN_MEMORY,
+        drop_last=False
+    )
+
+    # setup mixup / cutmix
+    mixup_fn = None
+    mixup_active = config.AUG.MIXUP > 0 or config.AUG.CUTMIX > 0. or config.AUG.CUTMIX_MINMAX is not None
+    if mixup_active:
+        mixup_fn = Mixup(
+            mixup_alpha=config.AUG.MIXUP, cutmix_alpha=config.AUG.CUTMIX, cutmix_minmax=config.AUG.CUTMIX_MINMAX,
+            prob=config.AUG.MIXUP_PROB, switch_prob=config.AUG.MIXUP_SWITCH_PROB, mode=config.AUG.MIXUP_MODE,
+            label_smoothing=config.MODEL.LABEL_SMOOTHING, num_classes=config.MODEL.NUM_CLASSES)
+
+    return data_loader_train, data_loader_val, mixup_fn
+
+
+def build_dataset(is_train, config):
+    dataset_name = config.DATA.DATASET.lower()
+
+    # Special handling for synthetic_anomaly dataset
+    if dataset_name == 'synthetic_anomaly':
+        if is_train:
+            # Training uses synthetic_anomaly dataset
+            dataset = SyntheticAnomalyDataset(
+                root_path=config.DATA.DATA_PATH,
+                img_size=config.DATA.IMG_SIZE,
+                is_train=True,
+            )
+        else:
+            # Validation uses MS_ROAD dataset
+            val_data_path = getattr(config.DATA, 'OOD_DATA_PATH', config.DATA.DATA_PATH)
+            dataset = SyntheticAnomalyDataset(
+                root_path=val_data_path,
+                img_size=config.DATA.IMG_SIZE,
+                is_train=False,
+            )
+        nb_classes = 2
+        return dataset, nb_classes
+
+    if dataset_name == 'imagenet':
+        transform = build_transform(is_train, config)
+        prefix = 'training' if is_train else 'validation'
+        root = os.path.join(config.DATA.DATA_PATH, prefix)
+        dataset = datasets.ImageFolder(root, transform=transform)
+        nb_classes = 1000
+    elif dataset_name == 'cityscapes':
+        use_ood_for_train = getattr(config.DATA, "TRAIN_FROM_OOD", False)
+        if is_train and use_ood_for_train:
+            if not config.DATA.OOD_DATA_PATH:
+                raise ValueError("DATA.OOD_DATA_PATH must be set when TRAIN_FROM_OOD is True.")
+            ood_names = config.DATA.TRAIN_OOD_DATASETS or config.DATA.OOD_DATASETS
+            if not ood_names:
+                raise ValueError("Specify DATA.TRAIN_OOD_DATASETS or DATA.OOD_DATASETS for OOD training.")
+            dataset = CityscapesOODDataset(
+                config.DATA.OOD_DATA_PATH,
+                dataset_names=ood_names,
+                img_size=config.DATA.IMG_SIZE,
+                is_train=True,
+                include_prefixes=config.DATA.TRAIN_INCLUDE_PREFIXES or None,
+            )
+            nb_classes = 2
+        elif is_train:
+            dataset = CityscapesSegDataset(
+                config.DATA.DATA_PATH,
+                split='train',
+                img_size=config.DATA.IMG_SIZE,
+            )
+            nb_classes = 19
+        else:
+            # Validation: use Cityscapes val for semantic segmentation, or OOD datasets if explicitly configured
+            if use_ood_for_train or (config.DATA.OOD_DATA_PATH and config.DATA.OOD_DATASETS):
+                # Use OOD datasets for validation only if explicitly configured
+                if not config.DATA.OOD_DATA_PATH:
+                    raise ValueError("DATA.OOD_DATA_PATH must be set for OOD validation.")
+                dataset = CityscapesOODDataset(
+                    config.DATA.OOD_DATA_PATH,
+                    dataset_names=config.DATA.OOD_DATASETS or [],
+                    img_size=config.DATA.IMG_SIZE,
+                    is_train=False,
+                    include_prefixes=config.DATA.VAL_INCLUDE_PREFIXES or None,
+                )
+                nb_classes = 2
+            else:
+                # Use Cityscapes val split for semantic segmentation validation
+                dataset = CityscapesSegDataset(
+                    config.DATA.DATA_PATH,
+                    split='val',
+                    img_size=config.DATA.IMG_SIZE,
+                )
+                nb_classes = 19
+    elif dataset_name == 'sos':
+        train_groups = getattr(config.DATA, "SOS_TRAIN_GROUPS", ["small", "middle", "large"])
+        val_groups = getattr(config.DATA, "SOS_VAL_GROUPS", ["small", "middle", "large"])
+        groups = train_groups if is_train else val_groups
+        dataset = SOSSegDataset(
+            config.DATA.DATA_PATH,
+            groups=groups,
+            img_size=config.DATA.IMG_SIZE,
+            is_train=is_train,
+        )
+        nb_classes = 2
+    elif dataset_name == 'synthetic_anomaly':
+        # For synthetic anomaly detection training
+        dataset = SyntheticAnomalyDataset(
+            root_path=config.DATA.DATA_PATH,
+            img_size=config.DATA.IMG_SIZE,
+            is_train=is_train,
+        )
+        nb_classes = 2  # Binary: normal vs anomaly
+    else:
+        raise NotImplementedError(f"Unsupported dataset: {config.DATA.DATASET}")
+
+    return dataset, nb_classes
+
+
+def build_transform_imagenet(is_train, config):
+    resize_im = config.DATA.IMG_SIZE > 32
+    if is_train:
+        # this should always dispatch to transforms_imagenet_train
+        transform = create_transform(
+            input_size=config.DATA.IMG_SIZE,
+            is_training=True,
+            color_jitter=config.AUG.COLOR_JITTER if config.AUG.COLOR_JITTER > 0 else None,
+            auto_augment=config.AUG.AUTO_AUGMENT if config.AUG.AUTO_AUGMENT != 'none' else None,
+            re_prob=config.AUG.REPROB,
+            re_mode=config.AUG.REMODE,
+            re_count=config.AUG.RECOUNT,
+            interpolation=config.DATA.INTERPOLATION,
+        )
+        if not resize_im:
+            # replace RandomResizedCropAndInterpolation with
+            # RandomCrop
+            transform.transforms[0] = transforms.RandomCrop(config.DATA.IMG_SIZE, padding=4)
+        return transform
+
+    t = []
+    if resize_im:
+        if config.TEST.CROP:
+            size = int((256 / 224) * config.DATA.IMG_SIZE)
+            t.append(
+                transforms.Resize(size, interpolation=_str_to_pil_interpolation[config.DATA.INTERPOLATION]),
+                # to maintain same ratio w.r.t. 224 images
+            )
+            t.append(transforms.CenterCrop(config.DATA.IMG_SIZE))
+        else:
+            t.append(
+                transforms.Resize((config.DATA.IMG_SIZE, config.DATA.IMG_SIZE),
+                                  interpolation=_str_to_pil_interpolation[config.DATA.INTERPOLATION])
+            )
+
+    t.append(transforms.ToTensor())
+    t.append(transforms.Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD))
+    return transforms.Compose(t)
+
+
+def build_transform(is_train, config):
+    dataset_name = config.DATA.DATASET.lower()
+    if dataset_name == 'imagenet':
+        return build_transform_imagenet(is_train, config)
+    else:
+        raise NotImplementedError("We only support ImageNet now.")

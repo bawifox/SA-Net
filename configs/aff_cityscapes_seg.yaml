@@ -1,0 +1,124 @@
+# --------------------------------------------------------
+# AutoFocusFormer for Cityscapes Semantic Segmentation
+# --------------------------------------------------------
+
+DATA:
+  BATCH_SIZE: 1
+  DATA_PATH: '/data/lyx/ijcai2026/cityscapes'
+  DATASET: 'cityscapes'
+  # OOD validation datasets path (for future OOD evaluation)
+  OOD_DATA_PATH: '/data/lyx/ijcai2026/val'
+  # Use Cityscapes train/val for semantic segmentation pre-training
+  TRAIN_FROM_OOD: False
+  TRAIN_OOD_DATASETS: []
+  TRAIN_INCLUDE_PREFIXES: []
+  # Validation uses Cityscapes val split
+  OOD_DATASETS: []
+  VAL_INCLUDE_PREFIXES: []
+  # 原论文用 512，但 GroundingDINO 式注意力显存很大，这里先用 384 保证能跑
+  IMG_SIZE: 512
+  IN_CHANS: 3
+  INTERPOLATION: 'bicubic'
+  NUM_WORKERS: 4
+  PIN_MEMORY: True
+
+MODEL:
+  TYPE: 'aff_seg'  # Use segmentation model
+  NAME: 'aff_cityscapes_seg'
+  NUM_CLASSES: 19  # Cityscapes semantic segmentation (19 classes)
+  DROP_RATE: 0.0
+  DROP_PATH_RATE: 0.1
+  LABEL_SMOOTHING: 0.0
+  RESUME: ''
+  PRETRAINED_BACKBONE: 'chenckpoint/aff_base_22k.pth'
+  # Segmentation model specific configs
+  FUSION_TYPE: 'none'  # 'none' for vision-only, or 'grounding_dino', 'cross_attention', 'adaptive', 'concat'
+  DECODER_TYPE: 'mask2former'  # 'simple', 'fpn', 'progressive', or 'mask2former'
+  USE_MULTI_SCALE: True  # Must be True for full Mask2Former decoder
+  # Mask2Former decoder specific configs
+  DECODER_CONV_DIM: 256  # FPN intermediate channels
+  DECODER_MASK_DIM: 256  # Mask feature dimension
+  DECODER_HIDDEN_DIM: 256  # Transformer hidden dimension
+  DECODER_NUM_QUERIES: 100  # Number of queries
+  DECODER_NHEADS: 8  # Number of attention heads
+  DECODER_DIM_FFN: 2048  # FFN dimension
+  DECODER_LAYERS: 9  # Number of decoder layers
+  DECODER_PRE_NORM: False  # Use pre-LayerNorm
+  DECODER_NORM: 'GN'  # Normalization type: 'GN' (GroupNorm) or 'BN' (BatchNorm)
+  DECODER_NUM_GROUPS: 32  # Number of groups for GroupNorm
+  # 为了控制显存，先把跨模态模块的层数各减到 1
+  NUM_ENHANCER_LAYERS: 1  # Number of Feature Enhancer layers
+  NUM_DECODER_LAYERS: 1  # Number of Cross-Modality Decoder layers
+
+  AFF:
+    DEPTHS: [2, 2, 6, 2]
+    NUM_HEADS: [4, 8, 16, 32]
+    EMBED_DIM: [128, 256, 512, 1024]
+    MLP_RATIO: 3.
+    PATCH_NORM: True
+    CLUSTER_SIZE: 8
+    NBHD_SIZE: [48, 48, 48, 49]
+    ALPHA: 4.0
+    DS_RATE: 0.25
+    LAYER_SCALE: 0.0
+    RESERVE: True
+
+TRAIN:
+  START_EPOCH: 0
+  EPOCHS: 500
+  LINEAR_SCALED_LR: False
+  WARMUP_EPOCHS: 20
+  COOLDOWN_EPOCHS: 0
+  WEIGHT_DECAY: 0.05
+  BASE_LR: 1e-4
+  WARMUP_LR: 1e-6
+  MIN_LR: 1e-6
+  USE_EMA: False
+  EMA_DECAY: 0.9998
+  CLIP_GRAD: 5.0
+  AUTO_RESUME: False
+  ACCUMULATION_STEPS: 0
+
+  LR_SCHEDULER:
+    NAME: 'cosine'
+    DECAY_EPOCHS: 30
+    DECAY_RATE: 0.1
+
+  OPTIMIZER:
+    NAME: 'adamw'
+    EPS: 1e-8
+    BETAS: [0.9, 0.999]
+    MOMENTUM: 0.9
+
+AUG:
+  COLOR_JITTER: 0.4
+  AUTO_AUGMENT: 'none'
+  REPROB: 0.0
+  REMODE: 'pixel'
+  RECOUNT: 1
+  MIXUP: 0.0
+  CUTMIX: 0.0
+  CUTMIX_MINMAX: None
+  MIXUP_PROB: 1.0
+  MIXUP_SWITCH_PROB: 0.5
+  MIXUP_MODE: 'batch'
+
+TEST:
+  CROP: False
+
+AMP_ENABLE: True
+OUTPUT: 'output'
+TAG: 'cityscapes_seg'
+SAVE_FREQ: 10
+PRINT_FREQ: 10
+EVAL_FREQ: 1
+SEED: 0
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+LOCAL_RANK: 0
+
+
+
+
+
+

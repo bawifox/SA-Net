@@ -1,0 +1,98 @@
+# --------------------------------------------------------
+# Scale-Aware Anomaly Detection Configuration
+# Based on AutoFocusFormer with Learnable Scale-Sensitive Gate
+# --------------------------------------------------------
+
+DATA:
+  BATCH_SIZE: 2  # Per GPU batch size (total batch size = BATCH_SIZE * num_GPUs)
+  DATA_PATH: '/data/lyx/ijcai2026/train_set'  # Training set path
+  DATASET: 'synthetic_anomaly'  # Synthetic anomaly dataset
+  OOD_DATA_PATH: '/data/lyx/ijcai2026/MS_ROAD'  # Test set path
+  TRAIN_FROM_OOD: True
+  TRAIN_OOD_DATASETS: ['train_set']
+  TRAIN_INCLUDE_PREFIXES: ['synthetic_images']
+  OOD_DATASETS: ['MS_ROAD']
+  VAL_INCLUDE_PREFIXES: ['images']
+  IMG_SIZE: 512
+  IN_CHANS: 3
+  INTERPOLATION: 'bicubic'
+  NUM_WORKERS: 8
+  PIN_MEMORY: True
+
+MODEL:
+  TYPE: 'scale_aware_anomaly'  # Use scale-aware anomaly detector
+  NAME: 'scale_aware_anomaly'
+  NUM_CLASSES: 2  # Binary: normal vs anomaly
+  DROP_RATE: 0.0
+  DROP_PATH_RATE: 0.1
+  LABEL_SMOOTHING: 0.0
+  RESUME: ''
+  # Backbone pre-training path (Cityscapes pre-trained AFF)
+  PRETRAINED_BACKBONE: '/data/lyx/ijcai2026/ml-autofocusformer/output_aff_4gpu_mask2former/aff_cityscapes_seg/cityscapes_seg/best_miou.pth'
+
+  AFF:
+    DEPTHS: [2, 2, 6, 2]
+    NUM_HEADS: [4, 8, 16, 32]
+    EMBED_DIM: [128, 256, 512, 1024]  # First 3 stages: [128, 256, 512]
+    MLP_RATIO: 3.
+    PATCH_NORM: True
+    CLUSTER_SIZE: 8
+    NBHD_SIZE: [48, 48, 48, 49]
+    ALPHA: 4.0
+    DS_RATE: 0.25
+    LAYER_SCALE: 0.0
+    RESERVE: True
+
+TRAIN:
+  START_EPOCH: 0
+  EPOCHS: 200  # 200 epochs for comprehensive training
+  LINEAR_SCALED_LR: False
+  WARMUP_EPOCHS: 10
+  COOLDOWN_EPOCHS: 0
+  WEIGHT_DECAY: 0.05
+  BASE_LR: 1e-4  # Slightly lower LR for fine-tuning
+  WARMUP_LR: 1e-6
+  MIN_LR: 1e-6
+  USE_EMA: False
+  EMA_DECAY: 0.9998
+  CLIP_GRAD: 5.0
+  AUTO_RESUME: True
+  ACCUMULATION_STEPS: 2  # Gradient accumulation for larger effective batch size
+
+  LR_SCHEDULER:
+    NAME: 'cosine'
+    DECAY_EPOCHS: 30
+    DECAY_RATE: 0.1
+
+  OPTIMIZER:
+    NAME: 'adamw'
+    EPS: 1e-8
+    BETAS: [0.9, 0.999]
+    MOMENTUM: 0.9
+
+AUG:
+  COLOR_JITTER: 0.4
+  AUTO_AUGMENT: 'none'
+  REPROB: 0.0
+  REMODE: 'pixel'
+  RECOUNT: 1
+  MIXUP: 0.0
+  CUTMIX: 0.0
+  CUTMIX_MINMAX: None
+  MIXUP_PROB: 1.0
+  MIXUP_SWITCH_PROB: 0.5
+  MIXUP_MODE: 'batch'
+
+TEST:
+  CROP: False
+
+AMP_ENABLE: True
+OUTPUT: 'output_scale_aware_anomaly'
+TAG: 'scale_aware_v1'
+SAVE_FREQ: 10
+PRINT_FREQ: 10
+EVAL_FREQ: 5  # Evaluate every 5 epochs
+SEED: 42
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+LOCAL_RANK: 0

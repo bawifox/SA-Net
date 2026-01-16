@@ -1,0 +1,116 @@
+# --------------------------------------------------------
+# AutoFocusFormer + Grounding Fusion on SOS (binary OOD)
+# --------------------------------------------------------
+
+DATA:
+  BATCH_SIZE: 8
+  DATA_PATH: '/data/lyx/ijcai2026/SOS_Data'
+  DATASET: 'sos'
+  SOS_TRAIN_GROUPS: ['small', 'middle', 'large']
+  SOS_VAL_GROUPS: ['small']
+  IMG_SIZE: 512
+  IN_CHANS: 3
+  INTERPOLATION: 'bicubic'
+  NUM_WORKERS: 4
+  PIN_MEMORY: True
+  OOD_DATA_PATH: ''           # not used for SOS
+  OOD_DATASETS: []
+  TRAIN_FROM_OOD: False
+  TRAIN_OOD_DATASETS: []
+  TRAIN_INCLUDE_PREFIXES: []
+  VAL_INCLUDE_PREFIXES: []
+
+MODEL:
+  TYPE: 'aff_seg'
+  NAME: 'aff_sos_grounding'
+  NUM_CLASSES: 2
+  DROP_RATE: 0.0
+  DROP_PATH_RATE: 0.1
+  LABEL_SMOOTHING: 0.0
+  RESUME: ''
+  PRETRAINED_BACKBONE: '/data/lyx/ijcai2026/ml-autofocusformer/output_aff_4gpu_mask2former/aff_cityscapes_seg/cityscapes_seg/best_miou.pth'
+  FUSION_TYPE: 'grounding_dino'   # enable text-vision fusion
+  DECODER_TYPE: 'fpn'
+  USE_MULTI_SCALE: True
+  DECODER_CONV_DIM: 192
+  DECODER_MASK_DIM: 256
+  DECODER_HIDDEN_DIM: 192
+  DECODER_NUM_QUERIES: 50
+  DECODER_NHEADS: 4
+  DECODER_DIM_FFN: 1024
+  DECODER_LAYERS: 6
+  DECODER_PRE_NORM: False
+  DECODER_NORM: 'GN'
+  DECODER_NUM_GROUPS: 32
+  NUM_ENHANCER_LAYERS: 0
+  NUM_DECODER_LAYERS: 0
+  OOD_SCORING_METHOD: 'small_object'  # 针对小物体OOD检测的创新方法（基于统计异常检测理论，无超参数）
+  OOD_SCORING_WINDOW_SIZE: 5  # 局部统计窗口大小（基于小物体典型尺寸，唯一参数）
+
+  AFF:
+    DEPTHS: [2, 2, 6, 2]
+    NUM_HEADS: [4, 8, 16, 32]
+    EMBED_DIM: [128, 256, 512, 1024]
+    MLP_RATIO: 3.
+    PATCH_NORM: True
+    CLUSTER_SIZE: 8
+    NBHD_SIZE: [48, 48, 48, 49]
+    ALPHA: 4.0
+    DS_RATE: 0.25
+    LAYER_SCALE: 0.0
+    RESERVE: True
+
+TRAIN:
+  START_EPOCH: 0
+  EPOCHS: 1000
+  LINEAR_SCALED_LR: False
+  WARMUP_EPOCHS: 10
+  COOLDOWN_EPOCHS: 0
+  WEIGHT_DECAY: 0.05
+  BASE_LR: 1e-4
+  WARMUP_LR: 1e-6
+  MIN_LR: 1e-6
+  USE_EMA: False
+  EMA_DECAY: 0.9998
+  CLIP_GRAD: 5.0
+  AUTO_RESUME: False
+  ACCUMULATION_STEPS: 0
+
+  LR_SCHEDULER:
+    NAME: 'cosine'
+    DECAY_EPOCHS: 30
+    DECAY_RATE: 0.1
+
+  OPTIMIZER:
+    NAME: 'adamw'
+    EPS: 1e-8
+    BETAS: [0.9, 0.999]
+    MOMENTUM: 0.9
+
+AUG:
+  COLOR_JITTER: 0.4
+  AUTO_AUGMENT: 'none'
+  REPROB: 0.0
+  REMODE: 'pixel'
+  RECOUNT: 1
+  MIXUP: 0.0
+  CUTMIX: 0.0
+  CUTMIX_MINMAX: None
+  MIXUP_PROB: 1.0
+  MIXUP_SWITCH_PROB: 0.5
+  MIXUP_MODE: 'batch'
+
+TEST:
+  CROP: False
+
+AMP_ENABLE: True
+OUTPUT: 'output_sos_grounding'
+TAG: 'sos_grounding'
+SAVE_FREQ: 10
+PRINT_FREQ: 10
+EVAL_FREQ: 1
+SEED: 0
+EVAL_MODE: False
+THROUGHPUT_MODE: False
+LOCAL_RANK: 0
+
