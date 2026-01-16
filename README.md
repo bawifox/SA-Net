@@ -13,12 +13,9 @@ Input (512×512) → AutoFocusFormer Backbone (Frozen 1-3)
     ↓ w(x) ∈ (0,1) → Competitive Gating → OOD Score
 ```
 
-**Design**: Plug-and-play adapter with frozen backbone, <1% parameter overhead.
-
 ## Quick Start
 
 ```bash
-git clone https://github.com/bawifox/SA-Net
 cd SA-Net
 conda create -n msroad python=3.8 && conda activate msroad
 conda install pytorch torchvision torchaudio pytorch-cuda=11.6 -c pytorch -c nvidia
