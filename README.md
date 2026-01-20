@@ -1,6 +1,15 @@
-# MS-ROAD: Scale Inhibition Effect in Road Anomaly Segmentation
+# MS-ROAD: A Diagnostic Protocol and Stress Test for Scale Inhibition in Road Anomaly Segmentation
 
-**SA-Net** addresses the **Scale Inhibition Effect** where large anomalies suppress small object detection signals through a plug-and-play Scale-Decoupling Module (SDM) with competitive gating.
+## Overview of the proposed Scale-Adaptive Anomaly Network (SA-Net). 
+Designed as a plug-and-play framework, SA-Net
+attaches a lightweight Trainable Adapter (shaded box) to a Frozen Backbone (blue region) to preserve semantic priors. The adapter
+consists of two decoupled streams: 
+- (1) The Decoupled Decoder independently generates uncertainty hypotheses (ui) for each scale to prevent
+premature feature fusion;
+- (2) The Scale-Decoupling Module (SDM) employs a Competitive Gating mechanism (via Softmax constraints)
+to predict orthogonal weights (w), dynamically suppressing dominant large-scale features to recover subtle small-scale signals. The entire
+framework is optimized end-to-end via the pixel-wise BCE loss
+<img width="1194" height="502" alt="8b1e188d4109ea9d0d5e44aeb8bba305" src="https://github.com/user-attachments/assets/d92d2bc5-2dd2-42b4-94c7-7c01ba9224a1" />
 
 
 
